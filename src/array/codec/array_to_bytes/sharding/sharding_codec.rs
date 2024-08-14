@@ -9,9 +9,9 @@ use crate::{
         array_bytes::{merge_chunks_vlen, update_bytes_flen},
         chunk_shape_to_array_shape,
         codec::{
-            ArrayCodecTraits, ArrayPartialDecoderTraits, ArrayToBytesCodecTraits,
-            BytesPartialDecoderTraits, CodecChain, CodecError, CodecOptions, CodecTraits,
-            RecommendedConcurrency,
+            ArrayCodecTraits, ArrayPartialDecoderTraits, ArrayPartialEncoderTraits,
+            ArrayToBytesCodecTraits, BytesPartialDecoderTraits, BytesPartialEncoderTraits,
+            CodecChain, CodecError, CodecOptions, CodecTraits, RecommendedConcurrency,
         },
         concurrency::calc_concurrency_outer_inner,
         transmute_to_bytes_vec, unravel_index,
@@ -29,8 +29,8 @@ use crate::array::codec::{AsyncArrayPartialDecoderTraits, AsyncBytesPartialDecod
 
 use super::{
     calculate_chunks_per_shard, compute_index_encoded_size, decode_shard_index,
-    sharding_index_decoded_representation, sharding_partial_decoder, ShardingCodecConfiguration,
-    ShardingCodecConfigurationV1, ShardingIndexLocation, IDENTIFIER,
+    sharding_index_decoded_representation, sharding_partial_decoder, sharding_partial_encoder,
+    ShardingCodecConfiguration, ShardingCodecConfigurationV1, ShardingIndexLocation, IDENTIFIER,
 };
 
 use rayon::prelude::*;
@@ -382,6 +382,27 @@ impl ArrayToBytesCodecTraits for ShardingCodec {
                 options,
             )
             .await?,
+        ))
+    }
+
+    fn partial_encoder<'a>(
+        &'a self,
+        input_handle: Arc<dyn BytesPartialDecoderTraits + 'a>,
+        output_handle: Arc<dyn BytesPartialEncoderTraits + 'a>,
+        decoded_representation: &ChunkRepresentation,
+        options: &CodecOptions,
+    ) -> Result<Arc<dyn ArrayPartialEncoderTraits + 'a>, CodecError> {
+        Ok(Arc::new(
+            sharding_partial_encoder::ShardingPartialEncoder::new(
+                input_handle,
+                output_handle,
+                decoded_representation.clone(),
+                self.chunk_shape.clone(),
+                &self.inner_codecs,
+                &self.index_codecs,
+                self.index_location,
+                options,
+            )?,
         ))
     }
 

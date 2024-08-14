@@ -5,8 +5,9 @@ use std::sync::Arc;
 use crate::{
     array::{
         codec::{
-            ArrayCodecTraits, ArrayPartialDecoderTraits, ArrayToBytesCodecTraits,
-            BytesPartialDecoderTraits, CodecError, CodecOptions, CodecTraits,
+            ArrayCodecTraits, ArrayPartialDecoderTraits, ArrayPartialEncoderDefault,
+            ArrayPartialEncoderTraits, ArrayToBytesCodecTraits, BytesPartialDecoderTraits,
+            BytesPartialEncoderTraits, CodecError, CodecOptions, CodecTraits,
             RecommendedConcurrency,
         },
         ArrayBytes, ArrayMetadataOptions, BytesRepresentation, ChunkRepresentation, DataTypeSize,
@@ -177,6 +178,21 @@ impl ArrayToBytesCodecTraits for BytesCodec {
             input_handle,
             decoded_representation.clone(),
             self.endian,
+        )))
+    }
+
+    fn partial_encoder<'a>(
+        &'a self,
+        input_handle: Arc<dyn BytesPartialDecoderTraits + 'a>,
+        output_handle: Arc<dyn BytesPartialEncoderTraits + 'a>,
+        decoded_representation: &ChunkRepresentation,
+        _options: &CodecOptions,
+    ) -> Result<Arc<dyn ArrayPartialEncoderTraits + 'a>, CodecError> {
+        Ok(Arc::new(ArrayPartialEncoderDefault::new(
+            input_handle,
+            output_handle,
+            decoded_representation.clone(),
+            self,
         )))
     }
 

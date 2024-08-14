@@ -4,7 +4,8 @@ use crate::{
     array::{
         codec::{
             options::CodecOptions, ArrayBytes, ArrayCodecTraits, ArrayPartialDecoderTraits,
-            ArrayToArrayCodecTraits, CodecError, CodecTraits, RecommendedConcurrency,
+            ArrayPartialEncoderTraits, ArrayToArrayCodecTraits, ArrayToArrayPartialEncoderDefault,
+            CodecError, CodecTraits, RecommendedConcurrency,
         },
         ArrayMetadataOptions, ChunkRepresentation,
     },
@@ -178,6 +179,21 @@ impl ArrayToArrayCodecTraits for TransposeCodec {
                 self.order.clone(),
             ),
         ))
+    }
+
+    fn partial_encoder<'a>(
+        &'a self,
+        input_handle: Arc<dyn ArrayPartialDecoderTraits + 'a>,
+        output_handle: Arc<dyn ArrayPartialEncoderTraits + 'a>,
+        decoded_representation: &ChunkRepresentation,
+        _options: &CodecOptions,
+    ) -> Result<Arc<dyn ArrayPartialEncoderTraits + 'a>, CodecError> {
+        Ok(Arc::new(ArrayToArrayPartialEncoderDefault::new(
+            input_handle,
+            output_handle,
+            decoded_representation.clone(),
+            self,
+        )))
     }
 
     fn compute_encoded_size(

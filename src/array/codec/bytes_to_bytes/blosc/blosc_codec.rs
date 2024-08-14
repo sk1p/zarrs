@@ -5,8 +5,8 @@ use blosc_sys::{blosc_get_complib_info, BLOSC_MAX_OVERHEAD};
 use crate::{
     array::{
         codec::{
-            BytesPartialDecoderTraits, BytesToBytesCodecTraits, CodecError, CodecOptions,
-            CodecTraits, RecommendedConcurrency,
+            BytesPartialDecoderTraits, BytesPartialEncoderDefault, BytesPartialEncoderTraits,
+            BytesToBytesCodecTraits, CodecError, CodecOptions, CodecTraits, RecommendedConcurrency,
         },
         ArrayMetadataOptions, BytesRepresentation, RawBytes,
     },
@@ -204,6 +204,21 @@ impl BytesToBytesCodecTraits for BloscCodec {
     ) -> Result<Arc<dyn BytesPartialDecoderTraits + 'a>, CodecError> {
         Ok(Arc::new(blosc_partial_decoder::BloscPartialDecoder::new(
             input_handle,
+        )))
+    }
+
+    fn partial_encoder<'a>(
+        &'a self,
+        input_handle: Arc<dyn BytesPartialDecoderTraits + 'a>,
+        output_handle: Arc<dyn BytesPartialEncoderTraits + 'a>,
+        decoded_representation: &BytesRepresentation,
+        _options: &CodecOptions,
+    ) -> Result<Arc<dyn BytesPartialEncoderTraits + 'a>, CodecError> {
+        Ok(Arc::new(BytesPartialEncoderDefault::new(
+            input_handle,
+            output_handle,
+            *decoded_representation,
+            self,
         )))
     }
 

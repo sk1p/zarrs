@@ -3,9 +3,10 @@ use std::{mem::size_of, num::NonZeroU64, sync::Arc};
 use crate::{
     array::{
         codec::{
-            ArrayCodecTraits, ArrayPartialDecoderTraits, ArrayToBytesCodecTraits, BytesCodec,
-            BytesPartialDecoderTraits, CodecError, CodecOptions, CodecTraits,
-            RecommendedConcurrency,
+            ArrayCodecTraits, ArrayPartialDecoderTraits, ArrayPartialEncoderDefault,
+            ArrayPartialEncoderTraits, ArrayToBytesCodecTraits, BytesCodec,
+            BytesPartialDecoderTraits, BytesPartialEncoderTraits, CodecError, CodecOptions,
+            CodecTraits, RecommendedConcurrency,
         },
         transmute_to_bytes_vec, ArrayBytes, ArrayMetadataOptions, BytesRepresentation,
         ChunkRepresentation, CodecChain, DataType, DataTypeSize, Endianness, FillValue, RawBytes,
@@ -278,6 +279,21 @@ impl ArrayToBytesCodecTraits for VlenCodec {
             &self.index_codecs,
             &self.data_codecs,
             self.index_data_type,
+        )))
+    }
+
+    fn partial_encoder<'a>(
+        &'a self,
+        input_handle: Arc<dyn BytesPartialDecoderTraits + 'a>,
+        output_handle: Arc<dyn BytesPartialEncoderTraits + 'a>,
+        decoded_representation: &ChunkRepresentation,
+        _options: &CodecOptions,
+    ) -> Result<Arc<dyn ArrayPartialEncoderTraits + 'a>, CodecError> {
+        Ok(Arc::new(ArrayPartialEncoderDefault::new(
+            input_handle,
+            output_handle,
+            decoded_representation.clone(),
+            self,
         )))
     }
 

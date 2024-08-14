@@ -5,8 +5,8 @@ use zstd::zstd_safe;
 use crate::{
     array::{
         codec::{
-            BytesPartialDecoderTraits, BytesToBytesCodecTraits, CodecError, CodecOptions,
-            CodecTraits, RecommendedConcurrency,
+            BytesPartialDecoderTraits, BytesPartialEncoderDefault, BytesPartialEncoderTraits,
+            BytesToBytesCodecTraits, CodecError, CodecOptions, CodecTraits, RecommendedConcurrency,
         },
         ArrayMetadataOptions, BytesRepresentation, RawBytes,
     },
@@ -109,6 +109,21 @@ impl BytesToBytesCodecTraits for ZstdCodec {
         _options: &CodecOptions,
     ) -> Result<Arc<dyn BytesPartialDecoderTraits + 'a>, CodecError> {
         Ok(Arc::new(zstd_partial_decoder::ZstdPartialDecoder::new(r)))
+    }
+
+    fn partial_encoder<'a>(
+        &'a self,
+        input_handle: Arc<dyn BytesPartialDecoderTraits + 'a>,
+        output_handle: Arc<dyn BytesPartialEncoderTraits + 'a>,
+        decoded_representation: &BytesRepresentation,
+        _options: &CodecOptions,
+    ) -> Result<Arc<dyn BytesPartialEncoderTraits + 'a>, CodecError> {
+        Ok(Arc::new(BytesPartialEncoderDefault::new(
+            input_handle,
+            output_handle,
+            *decoded_representation,
+            self,
+        )))
     }
 
     #[cfg(feature = "async")]

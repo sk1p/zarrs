@@ -7,8 +7,8 @@ use std::{
 use crate::{
     array::{
         codec::{
-            BytesPartialDecoderTraits, BytesToBytesCodecTraits, CodecError, CodecOptions,
-            CodecTraits, RecommendedConcurrency,
+            BytesPartialDecoderTraits, BytesPartialEncoderDefault, BytesPartialEncoderTraits,
+            BytesToBytesCodecTraits, CodecError, CodecOptions, CodecTraits, RecommendedConcurrency,
         },
         ArrayMetadataOptions, BytesRepresentation, RawBytes,
     },
@@ -113,6 +113,21 @@ impl BytesToBytesCodecTraits for Bz2Codec {
     ) -> Result<Arc<dyn BytesPartialDecoderTraits + 'a>, CodecError> {
         Ok(Arc::new(bz2_partial_decoder::Bz2PartialDecoder::new(
             input_handle,
+        )))
+    }
+
+    fn partial_encoder<'a>(
+        &'a self,
+        input_handle: Arc<dyn BytesPartialDecoderTraits + 'a>,
+        output_handle: Arc<dyn BytesPartialEncoderTraits + 'a>,
+        decoded_representation: &BytesRepresentation,
+        _options: &CodecOptions,
+    ) -> Result<Arc<dyn BytesPartialEncoderTraits + 'a>, CodecError> {
+        Ok(Arc::new(BytesPartialEncoderDefault::new(
+            input_handle,
+            output_handle,
+            *decoded_representation,
+            self,
         )))
     }
 

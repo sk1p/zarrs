@@ -1,23 +1,19 @@
-use std::{num::NonZeroU64, sync::Arc};
+use std::sync::Arc;
 
 use rayon::prelude::*;
 
-use crate::{
-    array::{
-        array_bytes::{merge_chunks_vlen, update_bytes_flen},
-        chunk_grid::RegularChunkGrid,
-        chunk_shape_to_array_shape,
-        codec::{
-            ArrayCodecTraits, ArrayPartialDecoderTraits, ArraySubset, ArrayToBytesCodecTraits,
-            ByteIntervalPartialDecoder, BytesPartialDecoderTraits, CodecChain, CodecError,
-            CodecOptions,
-        },
-        concurrency::{calc_concurrency_outer_inner, RecommendedConcurrency},
-        ravel_indices,
-        unsafe_cell_slice::UnsafeCellSlice,
-        ArrayBytes, ArraySize, ChunkRepresentation, ChunkShape, DataType, DataTypeSize,
+use crate::array::{
+    array_bytes::{merge_chunks_vlen, update_bytes_flen},
+    chunk_shape_to_array_shape,
+    codec::{
+        ArrayCodecTraits, ArrayPartialDecoderTraits, ArraySubset, ArrayToBytesCodecTraits,
+        ByteIntervalPartialDecoder, BytesPartialDecoderTraits, CodecChain, CodecError,
+        CodecOptions,
     },
-    byte_range::ByteRange,
+    concurrency::{calc_concurrency_outer_inner, RecommendedConcurrency},
+    ravel_indices,
+    unsafe_cell_slice::UnsafeCellSlice,
+    ArrayBytes, ArraySize, ChunkRepresentation, ChunkShape, DataType, DataTypeSize,
 };
 
 #[cfg(feature = "async")]
@@ -26,16 +22,13 @@ use crate::array::codec::{
     AsyncBytesPartialDecoderTraits,
 };
 
-use super::{
-    calculate_chunks_per_shard, compute_index_encoded_size, decode_shard_index,
-    sharding_index_decoded_representation, ShardingIndexLocation,
-};
+use super::{calculate_chunks_per_shard, ShardingIndexLocation};
 
 /// Partial decoder for the sharding codec.
 pub struct ShardingPartialDecoder<'a> {
     input_handle: Arc<dyn BytesPartialDecoderTraits + 'a>,
     decoded_representation: ChunkRepresentation,
-    chunk_grid: RegularChunkGrid,
+    chunk_shape: ChunkShape,
     inner_codecs: &'a CodecChain,
     shard_index: Option<Vec<u64>>,
 }
@@ -51,7 +44,7 @@ impl<'a> ShardingPartialDecoder<'a> {
         index_location: ShardingIndexLocation,
         options: &CodecOptions,
     ) -> Result<Self, CodecError> {
-        let shard_index = Self::decode_shard_index(
+        let shard_index = super::decode_shard_index_partial_decoder(
             &*input_handle,
             index_codecs,
             index_location,
@@ -62,59 +55,9 @@ impl<'a> ShardingPartialDecoder<'a> {
         Ok(Self {
             input_handle,
             decoded_representation,
-            chunk_grid: RegularChunkGrid::new(chunk_shape),
+            chunk_shape,
             inner_codecs,
             shard_index,
-        })
-    }
-
-    /// Returns `None` if there is no shard.
-    fn decode_shard_index(
-        input_handle: &dyn BytesPartialDecoderTraits,
-        index_codecs: &'a CodecChain,
-        index_location: ShardingIndexLocation,
-        chunk_shape: &[NonZeroU64],
-        decoded_representation: &ChunkRepresentation,
-        options: &CodecOptions,
-    ) -> Result<Option<Vec<u64>>, CodecError> {
-        let shard_shape = decoded_representation.shape();
-        let chunk_representation = unsafe {
-            ChunkRepresentation::new_unchecked(
-                chunk_shape.to_vec(),
-                decoded_representation.data_type().clone(),
-                decoded_representation.fill_value().clone(),
-            )
-        };
-
-        // Calculate chunks per shard
-        let chunks_per_shard =
-            calculate_chunks_per_shard(shard_shape, chunk_representation.shape())?;
-
-        // Get index array representation and encoded size
-        let index_array_representation =
-            sharding_index_decoded_representation(chunks_per_shard.as_slice());
-        let index_encoded_size =
-            compute_index_encoded_size(index_codecs, &index_array_representation)
-                .map_err(|e| CodecError::Other(e.to_string()))?;
-
-        // Decode the shard index
-        let index_byte_range = match index_location {
-            ShardingIndexLocation::Start => ByteRange::FromStart(0, Some(index_encoded_size)),
-            ShardingIndexLocation::End => ByteRange::FromEnd(0, Some(index_encoded_size)),
-        };
-
-        let encoded_shard_index = input_handle
-            .partial_decode(&[index_byte_range], options)?
-            .map(|mut v| v.remove(0));
-
-        Ok(match encoded_shard_index {
-            Some(encoded_shard_index) => Some(decode_shard_index(
-                &encoded_shard_index,
-                &index_array_representation,
-                index_codecs,
-                options,
-            )?),
-            None => None,
         })
     }
 }
@@ -154,7 +97,7 @@ impl ArrayPartialDecoderTraits for ShardingPartialDecoder<'_> {
 
         let chunk_representation = unsafe {
             ChunkRepresentation::new_unchecked(
-                self.chunk_grid.chunk_shape().to_vec(),
+                self.chunk_shape.to_vec(),
                 self.decoded_representation.data_type().clone(),
                 self.decoded_representation.fill_value().clone(),
             )
@@ -354,7 +297,7 @@ impl ArrayPartialDecoderTraits for ShardingPartialDecoder<'_> {
 pub struct AsyncShardingPartialDecoder<'a> {
     input_handle: Arc<dyn AsyncBytesPartialDecoderTraits + 'a>,
     decoded_representation: ChunkRepresentation,
-    chunk_grid: RegularChunkGrid,
+    chunk_shape: ChunkShape,
     inner_codecs: &'a CodecChain,
     shard_index: Option<Vec<u64>>,
 }
@@ -371,7 +314,7 @@ impl<'a> AsyncShardingPartialDecoder<'a> {
         index_location: ShardingIndexLocation,
         options: &CodecOptions,
     ) -> Result<AsyncShardingPartialDecoder<'a>, CodecError> {
-        let shard_index = Self::decode_shard_index(
+        let shard_index = super::decode_shard_index_async_partial_decoder(
             &*input_handle,
             index_codecs,
             index_location,
@@ -383,60 +326,9 @@ impl<'a> AsyncShardingPartialDecoder<'a> {
         Ok(Self {
             input_handle,
             decoded_representation,
-            chunk_grid: RegularChunkGrid::new(chunk_shape),
+            chunk_shape,
             inner_codecs,
             shard_index,
-        })
-    }
-
-    /// Returns `None` if there is no shard.
-    async fn decode_shard_index(
-        input_handle: &dyn AsyncBytesPartialDecoderTraits,
-        index_codecs: &'a CodecChain,
-        index_location: ShardingIndexLocation,
-        chunk_shape: &[NonZeroU64],
-        decoded_representation: &ChunkRepresentation,
-        options: &CodecOptions,
-    ) -> Result<Option<Vec<u64>>, CodecError> {
-        let shard_shape = decoded_representation.shape();
-        let chunk_representation = unsafe {
-            ChunkRepresentation::new_unchecked(
-                chunk_shape.to_vec(),
-                decoded_representation.data_type().clone(),
-                decoded_representation.fill_value().clone(),
-            )
-        };
-
-        // Calculate chunks per shard
-        let chunks_per_shard =
-            calculate_chunks_per_shard(shard_shape, chunk_representation.shape())?;
-
-        // Get index array representation and encoded size
-        let index_array_representation =
-            sharding_index_decoded_representation(chunks_per_shard.as_slice());
-        let index_encoded_size =
-            compute_index_encoded_size(index_codecs, &index_array_representation)
-                .map_err(|e| CodecError::Other(e.to_string()))?;
-
-        // Decode the shard index
-        let index_byte_range = match index_location {
-            ShardingIndexLocation::Start => ByteRange::FromStart(0, Some(index_encoded_size)),
-            ShardingIndexLocation::End => ByteRange::FromEnd(0, Some(index_encoded_size)),
-        };
-
-        let encoded_shard_index = input_handle
-            .partial_decode(&[index_byte_range], options)
-            .await?
-            .map(|mut v| v.remove(0));
-
-        Ok(match encoded_shard_index {
-            Some(encoded_shard_index) => Some(decode_shard_index(
-                &encoded_shard_index,
-                &index_array_representation,
-                index_codecs,
-                options,
-            )?),
-            None => None,
         })
     }
 }
@@ -476,19 +368,19 @@ impl AsyncArrayPartialDecoderTraits for AsyncShardingPartialDecoder<'_> {
                 .collect());
         };
 
-        let chunks_per_shard = calculate_chunks_per_shard(
-            self.decoded_representation.shape(),
-            self.chunk_grid.chunk_shape(),
-        )?;
-        let chunks_per_shard = chunk_shape_to_array_shape(chunks_per_shard.as_slice());
-
         let chunk_representation = unsafe {
             ChunkRepresentation::new_unchecked(
-                self.chunk_grid.chunk_shape().to_vec(),
+                self.chunk_shape.to_vec(),
                 self.decoded_representation.data_type().clone(),
                 self.decoded_representation.fill_value().clone(),
             )
         };
+
+        let chunks_per_shard = calculate_chunks_per_shard(
+            self.decoded_representation.shape(),
+            chunk_representation.shape(),
+        )?;
+        let chunks_per_shard = chunk_shape_to_array_shape(chunks_per_shard.as_slice());
 
         let mut out = Vec::with_capacity(array_subsets.len());
         // TODO: Could go parallel here?
@@ -574,7 +466,7 @@ impl AsyncArrayPartialDecoderTraits for AsyncShardingPartialDecoder<'_> {
                 DataTypeSize::Fixed(data_type_size) => {
                     // Find filled / non filled chunks
                     let chunk_info =
-                        unsafe { array_subset.chunks_unchecked(self.chunk_grid.chunk_shape()) }
+                        unsafe { array_subset.chunks_unchecked(chunk_representation.shape()) }
                             .into_iter()
                             .map(|(chunk_indices, chunk_subset)| {
                                 let chunk_index = ravel_indices(&chunk_indices, &chunks_per_shard);

@@ -4,8 +4,8 @@ use std::{borrow::Cow, sync::Arc};
 use crate::{
     array::{
         codec::{
-            BytesPartialDecoderTraits, BytesToBytesCodecTraits, CodecError, CodecOptions,
-            CodecTraits,
+            BytesPartialDecoderTraits, BytesPartialEncoderDefault, BytesPartialEncoderTraits,
+            BytesToBytesCodecTraits, CodecError, CodecOptions, CodecTraits,
         },
         ArrayMetadataOptions, BytesRepresentation, RawBytes, RecommendedConcurrency,
     },
@@ -123,6 +123,21 @@ impl BytesToBytesCodecTraits for GDeflateCodec {
         Ok(Arc::new(
             gdeflate_partial_decoder::GDeflatePartialDecoder::new(r),
         ))
+    }
+
+    fn partial_encoder<'a>(
+        &'a self,
+        input_handle: Arc<dyn BytesPartialDecoderTraits + 'a>,
+        output_handle: Arc<dyn BytesPartialEncoderTraits + 'a>,
+        decoded_representation: &BytesRepresentation,
+        _options: &CodecOptions,
+    ) -> Result<Arc<dyn BytesPartialEncoderTraits + 'a>, CodecError> {
+        Ok(Arc::new(BytesPartialEncoderDefault::new(
+            input_handle,
+            output_handle,
+            *decoded_representation,
+            self,
+        )))
     }
 
     #[cfg(feature = "async")]

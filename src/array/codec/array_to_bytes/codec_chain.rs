@@ -6,9 +6,9 @@ use crate::{
     array::{
         codec::{
             ArrayCodecTraits, ArrayPartialDecoderCache, ArrayPartialDecoderTraits,
-            ArrayToArrayCodecTraits, ArrayToBytesCodecTraits, BytesPartialDecoderCache,
-            BytesPartialDecoderTraits, BytesToBytesCodecTraits, Codec, CodecError, CodecOptions,
-            CodecTraits,
+            ArrayPartialEncoderTraits, ArrayToArrayCodecTraits, ArrayToBytesCodecTraits,
+            BytesPartialDecoderCache, BytesPartialDecoderTraits, BytesPartialEncoderTraits,
+            BytesToBytesCodecTraits, Codec, CodecError, CodecOptions, CodecTraits,
         },
         concurrency::RecommendedConcurrency,
         ArrayBytes, ArrayMetadataOptions, BytesRepresentation, ChunkRepresentation, ChunkShape,
@@ -361,6 +361,59 @@ impl ArrayToBytesCodecTraits for CodecChain {
         Ok(input_handle)
     }
 
+    fn partial_encoder<'a>(
+        &'a self,
+        mut input_handle: Arc<dyn BytesPartialDecoderTraits + 'a>,
+        mut output_handle: Arc<dyn BytesPartialEncoderTraits + 'a>,
+        decoded_representation: &ChunkRepresentation,
+        options: &CodecOptions,
+    ) -> Result<Arc<dyn ArrayPartialEncoderTraits + 'a>, CodecError> {
+        let array_representations =
+            self.get_array_representations(decoded_representation.clone())?;
+        let bytes_representations =
+            self.get_bytes_representations(array_representations.last().unwrap())?;
+
+        for (codec, bytes_representation) in std::iter::zip(
+            self.bytes_to_bytes.iter().rev(),
+            bytes_representations.iter().rev().skip(1),
+        ) {
+            output_handle = codec.partial_encoder(
+                input_handle.clone(),
+                output_handle,
+                bytes_representation,
+                options,
+            )?;
+            input_handle = codec.partial_decoder(input_handle, bytes_representation, options)?;
+        }
+
+        let mut output_handle = self.array_to_bytes.partial_encoder(
+            input_handle.clone(),
+            output_handle,
+            array_representations.last().unwrap(),
+            options,
+        )?;
+        let mut input_handle = self.array_to_bytes.partial_decoder(
+            input_handle,
+            array_representations.last().unwrap(),
+            options,
+        )?;
+
+        for (codec, array_representation) in std::iter::zip(
+            self.array_to_array.iter().rev(),
+            array_representations.iter().rev().skip(1),
+        ) {
+            output_handle = codec.partial_encoder(
+                input_handle.clone(),
+                output_handle,
+                array_representation,
+                options,
+            )?;
+            input_handle = codec.partial_decoder(input_handle, array_representation, options)?;
+        }
+
+        Ok(output_handle)
+    }
+
     #[cfg(feature = "async")]
     async fn async_partial_decoder<'a>(
         &'a self,
@@ -435,6 +488,8 @@ impl ArrayToBytesCodecTraits for CodecChain {
 
         Ok(input_handle)
     }
+
+    // FIXME: async partial decoder
 
     fn compute_encoded_size(
         &self,
