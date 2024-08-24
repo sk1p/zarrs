@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use super::{v2::group::GroupMetadataV2, v3::GroupMetadataV3};
 
 /// A wrapper to handle various versions of Zarr group metadata.
-#[derive(Serialize, Deserialize, Clone, Eq, PartialEq, Debug, Display, From)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Display, From)]
 #[serde(untagged)]
 pub enum GroupMetadata {
     /// Zarr Version 3.0.

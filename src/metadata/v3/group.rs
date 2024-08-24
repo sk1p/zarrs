@@ -18,7 +18,7 @@ use super::AdditionalFields;
 ///     }
 /// }
 #[non_exhaustive]
-#[derive(Serialize, Deserialize, Clone, Eq, PartialEq, Debug, Display)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug, Display)]
 #[display("{}", serde_json::to_string(self).unwrap_or_default())]
 pub struct GroupMetadataV3 {
     /// An integer defining the version of the storage specification to which the group adheres. Must be `3`.
