@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
 use zarrs::{
+    group::Group,
+    metadata::v3::group::ConsolidatedMetadata,
     node::{Node, NodePath},
     storage::store::FilesystemStore,
 };
@@ -43,4 +45,12 @@ fn consolidated_metadata() {
         let actual = Node::open(&store, node_path).unwrap();
         assert_eq!(consolidated, actual.metadata());
     }
+
+    let mut group = Group::open(store, "/").unwrap();
+    assert!(group.consolidated_metadata().is_none());
+    group.set_consolidated_metadata(Some(ConsolidatedMetadata {
+        metadata: consolidated_metadata,
+        ..Default::default()
+    }));
+    assert!(group.consolidated_metadata().is_some());
 }

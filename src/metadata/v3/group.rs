@@ -33,8 +33,8 @@ pub struct GroupMetadataV3 {
     #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
     pub attributes: serde_json::Map<String, serde_json::Value>,
     /// Consolidated metadata.
-    #[serde(default, skip_serializing_if = "ConsolidatedMetadata::is_empty")]
-    pub consolidated_metadata: ConsolidatedMetadata,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub consolidated_metadata: Option<ConsolidatedMetadata>,
     /// Additional fields.
     #[serde(flatten)]
     pub additional_fields: AdditionalFields,
@@ -58,7 +58,7 @@ impl GroupMetadataV3 {
             node_type: monostate::MustBe!("group"),
             attributes,
             additional_fields,
-            consolidated_metadata: ConsolidatedMetadata::default(),
+            consolidated_metadata: None,
         }
     }
 }
@@ -85,13 +85,6 @@ impl Default for ConsolidatedMetadata {
             kind: ConsolidatedMetadataKind::Inline,
             must_understand: monostate::MustBe!(false),
         }
-    }
-}
-
-impl ConsolidatedMetadata {
-    #[must_use]
-    fn is_empty(&self) -> bool {
-        self.metadata.is_empty()
     }
 }
 
@@ -137,6 +130,7 @@ mod tests {
         assert_eq!(
             group_metadata
                 .consolidated_metadata
+                .unwrap()
                 .metadata
                 .get(&NodePath::new("/subgroup").unwrap())
                 .unwrap(),
