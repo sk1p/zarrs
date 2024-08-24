@@ -1,12 +1,13 @@
 use crate::storage::StorePrefix;
 use derive_more::Display;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use thiserror::Error;
 
 /// A Zarr hierarchy node path.
 ///
 /// See <https://zarr-specs.readthedocs.io/en/latest/v3/core/v3.0.html#path>
-#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Display)]
+#[derive(Serialize, Deserialize, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Display)]
 #[display("{}", _0.to_string_lossy())]
 pub struct NodePath(PathBuf);
 
