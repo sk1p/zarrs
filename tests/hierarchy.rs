@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use zarrs::{node::Node, storage::store::FilesystemStore};
+use zarrs::{
+    node::{Node, NodePath},
+    storage::store::FilesystemStore,
+};
 
 #[test]
 fn hierarchy_tree() {
@@ -21,4 +24,23 @@ fn hierarchy_tree() {
   b
 "
     );
+}
+
+#[test]
+fn consolidated_metadata() {
+    let store = Arc::new(
+        FilesystemStore::new("./tests/data/hierarchy.zarr")
+            .unwrap()
+            .sorted(),
+    );
+    let node = Node::open(&store, "/").unwrap();
+    let consolidated_metadata = node.consolidate_metadata().unwrap();
+
+    for node_path in ["/a/baz", "/a/foo", "/b"] {
+        let consolidated = consolidated_metadata
+            .get(&NodePath::new(node_path).unwrap())
+            .unwrap();
+        let actual = Node::open(&store, node_path).unwrap();
+        assert_eq!(consolidated, actual.metadata());
+    }
 }

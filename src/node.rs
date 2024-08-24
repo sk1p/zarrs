@@ -10,7 +10,7 @@ mod node_metadata;
 mod node_name;
 mod node_path;
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 pub use node_metadata::NodeMetadata;
 pub use node_name::{NodeName, NodeNameError};
@@ -20,7 +20,10 @@ use thiserror::Error;
 use crate::{
     array::ArrayMetadata,
     group::GroupMetadataV3,
-    metadata::{ArrayMetadataV2, GroupMetadata, GroupMetadataV2, MetadataRetrieveVersion},
+    metadata::{
+        v3::group::ConsolidatedMetadataMetadata, ArrayMetadataV2, GroupMetadata, GroupMetadataV2,
+        MetadataRetrieveVersion,
+    },
     storage::{
         get_child_nodes, meta_key, meta_key_v2_array, meta_key_v2_attributes, meta_key_v2_group,
         ListableStorageTraits, ReadableStorageTraits, StorageError,
@@ -399,6 +402,31 @@ impl Node {
         print_metadata("/", &mut string, &self.metadata);
         update_tree(&mut string, &self.children, 1);
         string
+    }
+
+    /// Consolidate metadata. Returns [`None`] for an array.
+    ///
+    /// [`ConsolidatedMetadataMetadata`] can be converted into [`ConsolidatedMetadata`](crate::metadata::v3::group::ConsolidatedMetadata) in [`GroupMetadataV3`].
+    #[must_use]
+    #[allow(clippy::items_after_statements)]
+    pub fn consolidate_metadata(&self) -> Option<ConsolidatedMetadataMetadata> {
+        if let NodeMetadata::Array(_) = self.metadata {
+            // Arrays cannot have consolidated metadata
+            return None;
+        }
+
+        fn update_consolidated_metadata(
+            consolidated_metadata: &mut ConsolidatedMetadataMetadata,
+            children: &[Node],
+        ) {
+            for child in children {
+                consolidated_metadata.insert(child.path().clone(), child.metadata.clone());
+                update_consolidated_metadata(consolidated_metadata, &child.children);
+            }
+        }
+        let mut consolidated_metadata = HashMap::default();
+        update_consolidated_metadata(&mut consolidated_metadata, &self.children);
+        Some(consolidated_metadata)
     }
 }
 

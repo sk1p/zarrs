@@ -68,12 +68,15 @@ impl GroupMetadataV3 {
 #[display("{}", serde_json::to_string(self).unwrap_or_default())]
 pub struct ConsolidatedMetadata {
     /// A mapping from node path to Group or Array [`NodeMetadata`] object.
-    pub metadata: HashMap<NodePath, NodeMetadata>,
+    pub metadata: ConsolidatedMetadataMetadata,
     /// The kind of the consolidated metadata. Must be `'inline'`. Reserved for future use.
     pub kind: ConsolidatedMetadataKind,
     /// The boolean literal `false`. Indicates that the field is not required to load the Zarr hierarchy.
     pub must_understand: monostate::MustBe!(false),
 }
+
+/// The `metadata` field of `consolidated_metadata` in [`GroupMetadataV3`].
+pub type ConsolidatedMetadataMetadata = HashMap<NodePath, NodeMetadata>;
 
 impl Default for ConsolidatedMetadata {
     fn default() -> Self {
