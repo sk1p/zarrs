@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{borrow::Cow, sync::Arc};
 
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use rayon_iter_concurrent_limit::iter_concurrent_limit;
@@ -6,160 +6,72 @@ use rayon_iter_concurrent_limit::iter_concurrent_limit;
 use crate::{
     array::{
         array_bytes::{merge_chunks_vlen, update_bytes_flen},
-        codec::CodecOptions,
+        codec::{ArrayToBytesCodecTraits, CodecOptions},
         concurrency::concurrency_chunks_and_codec,
-        Array, ArrayBytes, ArrayError, ArraySize, DataTypeSize, ElementOwned, UnsafeCellSlice,
+        Array, ArrayBytes, ArrayChunkCacheExt, ArrayError, ArraySize, DataTypeSize, ElementOwned,
+        UnsafeCellSlice,
     },
     array_subset::ArraySubset,
-    storage::ReadableStorageTraits,
+    storage::{ReadableStorageTraits, StorageError},
 };
 
-use super::ChunkCache;
+use super::{ChunkCache, ChunkCacheTypeEncoded};
 
-/// An [`Array`] extension trait to support reading with a chunk cache.
-///
-/// Note that these methods never perform partial decoding and always fully decode chunks intersected that are not in the cache.
-pub trait ArrayChunkCacheExt<TStorage: ?Sized + ReadableStorageTraits + 'static> {
-    /// Cached variant of [`retrieve_chunk_opt`](Array::retrieve_chunk_opt).
-    #[allow(clippy::missing_errors_doc)]
-    fn retrieve_chunk_opt_cached(
-        &self,
-        cache: &impl ChunkCache,
-        chunk_indices: &[u64],
-        options: &CodecOptions,
-    ) -> Result<Arc<ArrayBytes<'static>>, ArrayError>;
-
-    /// Cached variant of [`retrieve_chunk_elements_opt`](Array::retrieve_chunk_elements_opt).
-    #[allow(clippy::missing_errors_doc)]
-    fn retrieve_chunk_elements_opt_cached<T: ElementOwned>(
-        &self,
-        cache: &impl ChunkCache,
-        chunk_indices: &[u64],
-        options: &CodecOptions,
-    ) -> Result<Vec<T>, ArrayError>;
-
-    #[cfg(feature = "ndarray")]
-    /// Cached variant of [`retrieve_chunk_ndarray_opt`](Array::retrieve_chunk_ndarray_opt).
-    #[allow(clippy::missing_errors_doc)]
-    fn retrieve_chunk_ndarray_opt_cached<T: ElementOwned>(
-        &self,
-        cache: &impl ChunkCache,
-        chunk_indices: &[u64],
-        options: &CodecOptions,
-    ) -> Result<ndarray::ArrayD<T>, ArrayError>;
-
-    /// Cached variant of [`retrieve_chunks_opt`](Array::retrieve_chunks_opt).
-    #[allow(clippy::missing_errors_doc)]
-    fn retrieve_chunks_opt_cached(
-        &self,
-        cache: &impl ChunkCache,
-        chunks: &ArraySubset,
-        options: &CodecOptions,
-    ) -> Result<ArrayBytes<'_>, ArrayError>;
-
-    /// Cached variant of [`retrieve_chunks_elements_opt`](Array::retrieve_chunks_elements_opt).
-    #[allow(clippy::missing_errors_doc)]
-    fn retrieve_chunks_elements_opt_cached<T: ElementOwned>(
-        &self,
-        cache: &impl ChunkCache,
-        chunks: &ArraySubset,
-        options: &CodecOptions,
-    ) -> Result<Vec<T>, ArrayError>;
-
-    #[cfg(feature = "ndarray")]
-    /// Cached variant of [`retrieve_chunks_ndarray_opt`](Array::retrieve_chunks_ndarray_opt).
-    #[allow(clippy::missing_errors_doc)]
-    fn retrieve_chunks_ndarray_opt_cached<T: ElementOwned>(
-        &self,
-        cache: &impl ChunkCache,
-        chunks: &ArraySubset,
-        options: &CodecOptions,
-    ) -> Result<ndarray::ArrayD<T>, ArrayError>;
-
-    /// Cached variant of [`retrieve_chunk_subset_opt`](Array::retrieve_chunk_subset_opt).
-    #[allow(clippy::missing_errors_doc)]
-    fn retrieve_chunk_subset_opt_cached(
-        &self,
-        cache: &impl ChunkCache,
-        chunk_indices: &[u64],
-        chunk_subset: &ArraySubset,
-        options: &CodecOptions,
-    ) -> Result<ArrayBytes<'_>, ArrayError>;
-
-    /// Cached variant of [`retrieve_chunk_subset_elements_opt`](Array::retrieve_chunk_subset_elements_opt).
-    #[allow(clippy::missing_errors_doc)]
-    fn retrieve_chunk_subset_elements_opt_cached<T: ElementOwned>(
-        &self,
-        cache: &impl ChunkCache,
-        chunk_indices: &[u64],
-        chunk_subset: &ArraySubset,
-        options: &CodecOptions,
-    ) -> Result<Vec<T>, ArrayError>;
-
-    #[cfg(feature = "ndarray")]
-    /// Cached variant of [`retrieve_chunk_subset_ndarray_opt`](Array::retrieve_chunk_subset_ndarray_opt).
-    #[allow(clippy::missing_errors_doc)]
-    fn retrieve_chunk_subset_ndarray_opt_cached<T: ElementOwned>(
-        &self,
-        cache: &impl ChunkCache,
-        chunk_indices: &[u64],
-        chunk_subset: &ArraySubset,
-        options: &CodecOptions,
-    ) -> Result<ndarray::ArrayD<T>, ArrayError>;
-
-    /// Cached variant of [`retrieve_array_subset_opt`](Array::retrieve_array_subset_opt).
-    #[allow(clippy::missing_errors_doc)]
-    fn retrieve_array_subset_opt_cached(
-        &self,
-        cache: &impl ChunkCache,
-        array_subset: &ArraySubset,
-        options: &CodecOptions,
-    ) -> Result<ArrayBytes<'_>, ArrayError>;
-
-    /// Cached variant of [`retrieve_array_subset_elements_opt`](Array::retrieve_array_subset_elements_opt).
-    #[allow(clippy::missing_errors_doc)]
-    fn retrieve_array_subset_elements_opt_cached<T: ElementOwned>(
-        &self,
-        cache: &impl ChunkCache,
-        array_subset: &ArraySubset,
-        options: &CodecOptions,
-    ) -> Result<Vec<T>, ArrayError>;
-
-    #[cfg(feature = "ndarray")]
-    /// Cached variant of [`retrieve_array_subset_ndarray_opt`](Array::retrieve_array_subset_ndarray_opt).
-    #[allow(clippy::missing_errors_doc)]
-    fn retrieve_array_subset_ndarray_opt_cached<T: ElementOwned>(
-        &self,
-        cache: &impl ChunkCache,
-        array_subset: &ArraySubset,
-        options: &CodecOptions,
-    ) -> Result<ndarray::ArrayD<T>, ArrayError>;
-}
-
-impl<TStorage: ?Sized + ReadableStorageTraits + 'static> ArrayChunkCacheExt<TStorage>
-    for Array<TStorage>
+impl<TStorage: ?Sized + ReadableStorageTraits + 'static>
+    ArrayChunkCacheExt<TStorage, ChunkCacheTypeEncoded> for Array<TStorage>
 {
     fn retrieve_chunk_opt_cached(
         &self,
-        cache: &impl ChunkCache,
+        cache: &impl ChunkCache<ChunkCacheTypeEncoded>,
         chunk_indices: &[u64],
         options: &CodecOptions,
     ) -> Result<Arc<ArrayBytes<'static>>, ArrayError> {
-        if let Some(chunk) = cache.get(chunk_indices) {
-            Ok(chunk)
+        let chunk_encoded = cache
+            .try_get_or_insert_with::<_, ArrayError>(chunk_indices.to_vec(), || {
+                Ok(Arc::new(
+                    self.retrieve_encoded_chunk(chunk_indices)?.map(Cow::Owned),
+                ))
+            })
+            .map_err(|err| {
+                // moka returns an Arc'd error, unwrap it noting that ArrayError is not cloneable
+                Arc::try_unwrap(err).unwrap_or_else(|err| {
+                    ArrayError::StorageError(StorageError::from(err.to_string()))
+                })
+            })?;
+        // let chunk_encoded = if let Some(chunk) = cache.get(chunk_indices) {
+        //     chunk
+        // } else {
+        //     let chunk = self.retrieve_encoded_chunk(chunk_indices)?.map(Cow::Owned);
+        //     let chunk = Arc::new(chunk);
+        //     cache.insert(chunk_indices.to_vec(), chunk.clone());
+        //     chunk
+        // };
+
+        if let Some(chunk_encoded) = chunk_encoded.as_ref() {
+            let chunk_representation = self.chunk_array_representation(chunk_indices)?;
+            let bytes = self
+                .codecs()
+                .decode(Cow::Borrowed(chunk_encoded), &chunk_representation, options)
+                .map_err(ArrayError::CodecError)?;
+            bytes.validate(
+                chunk_representation.num_elements(),
+                chunk_representation.data_type().size(),
+            )?;
+            Ok(Arc::new(bytes.into_owned()))
         } else {
-            let chunk = Arc::new(
-                self.retrieve_chunk_opt(chunk_indices, options)?
-                    .into_owned(),
-            );
-            cache.insert(chunk_indices.to_vec(), chunk.clone());
-            Ok(chunk)
+            let chunk_shape = self.chunk_shape(chunk_indices)?;
+            let array_size =
+                ArraySize::new(self.data_type().size(), chunk_shape.num_elements_u64());
+            Ok(Arc::new(ArrayBytes::new_fill_value(
+                array_size,
+                self.fill_value(),
+            )))
         }
     }
 
     fn retrieve_chunk_elements_opt_cached<T: ElementOwned>(
         &self,
-        cache: &impl ChunkCache,
+        cache: &impl ChunkCache<ChunkCacheTypeEncoded>,
         chunk_indices: &[u64],
         options: &CodecOptions,
     ) -> Result<Vec<T>, ArrayError> {
@@ -172,7 +84,7 @@ impl<TStorage: ?Sized + ReadableStorageTraits + 'static> ArrayChunkCacheExt<TSto
     #[cfg(feature = "ndarray")]
     fn retrieve_chunk_ndarray_opt_cached<T: ElementOwned>(
         &self,
-        cache: &impl ChunkCache,
+        cache: &impl ChunkCache<ChunkCacheTypeEncoded>,
         chunk_indices: &[u64],
         options: &CodecOptions,
     ) -> Result<ndarray::ArrayD<T>, ArrayError> {
@@ -188,7 +100,7 @@ impl<TStorage: ?Sized + ReadableStorageTraits + 'static> ArrayChunkCacheExt<TSto
 
     fn retrieve_chunks_opt_cached(
         &self,
-        cache: &impl ChunkCache,
+        cache: &impl ChunkCache<ChunkCacheTypeEncoded>,
         chunks: &ArraySubset,
         options: &CodecOptions,
     ) -> Result<ArrayBytes<'_>, ArrayError> {
@@ -205,7 +117,7 @@ impl<TStorage: ?Sized + ReadableStorageTraits + 'static> ArrayChunkCacheExt<TSto
 
     fn retrieve_chunks_elements_opt_cached<T: ElementOwned>(
         &self,
-        cache: &impl ChunkCache,
+        cache: &impl ChunkCache<ChunkCacheTypeEncoded>,
         chunks: &ArraySubset,
         options: &CodecOptions,
     ) -> Result<Vec<T>, ArrayError> {
@@ -218,7 +130,7 @@ impl<TStorage: ?Sized + ReadableStorageTraits + 'static> ArrayChunkCacheExt<TSto
     #[cfg(feature = "ndarray")]
     fn retrieve_chunks_ndarray_opt_cached<T: ElementOwned>(
         &self,
-        cache: &impl ChunkCache,
+        cache: &impl ChunkCache<ChunkCacheTypeEncoded>,
         chunks: &ArraySubset,
         options: &CodecOptions,
     ) -> Result<ndarray::ArrayD<T>, ArrayError> {
@@ -229,7 +141,7 @@ impl<TStorage: ?Sized + ReadableStorageTraits + 'static> ArrayChunkCacheExt<TSto
 
     fn retrieve_chunk_subset_opt_cached(
         &self,
-        cache: &impl ChunkCache,
+        cache: &impl ChunkCache<ChunkCacheTypeEncoded>,
         chunk_indices: &[u64],
         chunk_subset: &ArraySubset,
         options: &CodecOptions,
@@ -243,7 +155,7 @@ impl<TStorage: ?Sized + ReadableStorageTraits + 'static> ArrayChunkCacheExt<TSto
 
     fn retrieve_chunk_subset_elements_opt_cached<T: ElementOwned>(
         &self,
-        cache: &impl ChunkCache,
+        cache: &impl ChunkCache<ChunkCacheTypeEncoded>,
         chunk_indices: &[u64],
         chunk_subset: &ArraySubset,
         options: &CodecOptions,
@@ -257,7 +169,7 @@ impl<TStorage: ?Sized + ReadableStorageTraits + 'static> ArrayChunkCacheExt<TSto
     #[cfg(feature = "ndarray")]
     fn retrieve_chunk_subset_ndarray_opt_cached<T: ElementOwned>(
         &self,
-        cache: &impl ChunkCache,
+        cache: &impl ChunkCache<ChunkCacheTypeEncoded>,
         chunk_indices: &[u64],
         chunk_subset: &ArraySubset,
         options: &CodecOptions,
@@ -274,7 +186,7 @@ impl<TStorage: ?Sized + ReadableStorageTraits + 'static> ArrayChunkCacheExt<TSto
     #[allow(clippy::too_many_lines)]
     fn retrieve_array_subset_opt_cached(
         &self,
-        cache: &impl ChunkCache,
+        cache: &impl ChunkCache<ChunkCacheTypeEncoded>,
         array_subset: &ArraySubset,
         options: &CodecOptions,
     ) -> Result<ArrayBytes<'_>, ArrayError> {
@@ -417,7 +329,7 @@ impl<TStorage: ?Sized + ReadableStorageTraits + 'static> ArrayChunkCacheExt<TSto
 
     fn retrieve_array_subset_elements_opt_cached<T: ElementOwned>(
         &self,
-        cache: &impl ChunkCache,
+        cache: &impl ChunkCache<ChunkCacheTypeEncoded>,
         array_subset: &ArraySubset,
         options: &CodecOptions,
     ) -> Result<Vec<T>, ArrayError> {
@@ -430,7 +342,7 @@ impl<TStorage: ?Sized + ReadableStorageTraits + 'static> ArrayChunkCacheExt<TSto
     #[cfg(feature = "ndarray")]
     fn retrieve_array_subset_ndarray_opt_cached<T: ElementOwned>(
         &self,
-        cache: &impl ChunkCache,
+        cache: &impl ChunkCache<ChunkCacheTypeEncoded>,
         array_subset: &ArraySubset,
         options: &CodecOptions,
     ) -> Result<ndarray::ArrayD<T>, ArrayError> {
@@ -448,7 +360,8 @@ mod tests {
 
     use crate::{
         array::{
-            ArrayBuilder, ChunkCacheLruChunkLimit, ChunkCacheLruSizeLimit, DataType, FillValue,
+            ArrayBuilder, ChunkCacheEncodedLruChunkLimit, ChunkCacheEncodedLruSizeLimit, DataType,
+            FillValue,
         },
         array_subset::ArraySubset,
         storage::{storage_transformer::PerformanceMetricsStorageTransformer, store::MemoryStore},
@@ -481,7 +394,7 @@ mod tests {
             )
             .unwrap();
 
-        let cache = ChunkCacheLruChunkLimit::new(2);
+        let cache = ChunkCacheEncodedLruChunkLimit::new(2);
 
         assert_eq!(performance_metrics.reads(), 0);
         assert!(cache.is_empty());
@@ -552,7 +465,7 @@ mod tests {
 
         // Create a cache with a size limit equivalent to 2 chunks
         let chunk_size = 4 * 4 * size_of::<u8>();
-        let cache = ChunkCacheLruSizeLimit::new(2 * chunk_size as u64);
+        let cache = ChunkCacheEncodedLruSizeLimit::new(2 * chunk_size as u64);
 
         assert_eq!(performance_metrics.reads(), 0);
         assert!(cache.is_empty());
